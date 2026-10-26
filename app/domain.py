@@ -3,7 +3,7 @@
 Pure Python: do not import fastapi, starlette, pydantic or sqlalchemy here
 (a hidden test checks). Keep the names below exactly as they are.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 MAX_ATTEMPTS = 3
@@ -27,6 +27,7 @@ class EventType(StrEnum):
 class InvalidTransition(Exception): ...
 
 
+
 @dataclass(frozen=True)
 class Parcel:
     id: str
@@ -36,6 +37,13 @@ class Parcel:
     state: ParcelState = ParcelState.CREATED
     attempts: int = 0
 
+transitions = {
+    (ParcelState.CREATED, EventType.DISPATCH): ParcelState.OUT_FOR_DELIVERY,
+    (ParcelState.OUT_FOR_DELIVERY, EventType.DELIVER): ParcelState.DELIVERED,
+    (ParcelState.OUT_FOR_DELIVERY, EventType.FAIL): ParcelState.FAILED_ATTEMPT,
+    (ParcelState.FAILED_ATTEMPT, EventType.DISPATCH): ParcelState.OUT_FOR_DELIVERY,
+    (ParcelState.FAILED_ATTEMPT, EventType.RETURN): ParcelState.RETURNED,
+}
 
 def apply_event(parcel: Parcel, event: EventType) -> Parcel:
     """Return a new Parcel. Raise InvalidTransition if the event is not allowed.
@@ -48,4 +56,14 @@ def apply_event(parcel: Parcel, event: EventType) -> Parcel:
     - delivered and returned are final; every other combination raises InvalidTransition.
     Never mutate the input parcel.
     """
-    raise NotImplementedError
+    next_state = transitions.get((parcel.state, event))
+
+    if next_state is None:      
+        raise InvalidTransition("state not allowed")     
+
+    attempts = parcel.attempts        
+    if event == EventType.DISPATCH:
+        if attempts >= MAX_ATTEMPTS:                     
+            raise InvalidTransition("max attempts reached")                
+        attempts = attempts + 1              
+    return replace(parcel, state=next_state, attempts=attempts) 
